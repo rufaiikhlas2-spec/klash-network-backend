@@ -16,7 +16,7 @@ let cachedToken = null;
 let tokenTime = 0;
 
 async function getVTUToken() {
-  // Reuse token while it is still fresh
+  // Reuse the token for up to 6 days
   if (
     cachedToken &&
     Date.now() - tokenTime < 6 * 24 * 60 * 60 * 1000
@@ -24,8 +24,13 @@ async function getVTUToken() {
     return cachedToken;
   }
 
-  if (!process.env.VTU_USERNAME || !process.env.VTU_PASSWORD) {
-    throw new Error("VTU_USERNAME or VTU_PASSWORD is not configured");
+  const username = process.env.VTU_USERNAME;
+  const password = process.env.VTU_PASSWORD;
+
+  if (!username || !password) {
+    throw new Error(
+      "VTU_USERNAME or VTU_PASSWORD is missing in Render Environment Variables"
+    );
   }
 
   const response = await fetch(
@@ -36,8 +41,8 @@ async function getVTUToken() {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        username: process.env.VTU_USERNAME,
-        password: process.env.VTU_PASSWORD
+        username: username,
+        password: password
       })
     }
   );
@@ -45,10 +50,10 @@ async function getVTUToken() {
   const result = await response.json();
 
   if (!response.ok || !result.token) {
-    console.error("VTU login failed:", result);
+    console.error("VTU authentication response:", result);
 
     throw new Error(
-      result.message || "Unable to authenticate with VTU.ng"
+      result.message || "VTU.ng authentication failed"
     );
   }
 
@@ -82,7 +87,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // ==========================================
-// TEST VTU LOGIN
+// VTU AUTHENTICATION TEST
 // ==========================================
 
 app.get("/api/vtu-test", async (req, res) => {
@@ -95,7 +100,7 @@ app.get("/api/vtu-test", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("VTU test error:", error);
+    console.error("VTU test error:", error.message);
 
     res.status(500).json({
       success: false,
@@ -141,12 +146,15 @@ app.get("/api/data-plans/:network", async (req, res) => {
 
     res.json({
       success: true,
-      network,
+      network: network,
       plans: result.data || []
     });
 
   } catch (error) {
-    console.error(error);
+    console.error(
+      "Data plans error:",
+      error.message
+    );
 
     res.status(500).json({
       success: false,
@@ -163,6 +171,7 @@ app.post("/api/purchase-data", async (req, res) => {
   try {
 
     // SAFETY SWITCH
+    // Keep LIVE_PURCHASES=false for now.
     if (process.env.LIVE_PURCHASES !== "true") {
       return res.status(403).json({
         success: false,
@@ -179,7 +188,8 @@ app.post("/api/purchase-data", async (req, res) => {
     if (!phone || !service_id || !variation_id) {
       return res.status(400).json({
         success: false,
-        message: "Phone, network and data plan are required."
+        message:
+          "Phone, network and data plan are required."
       });
     }
 
@@ -235,22 +245,29 @@ app.post("/api/purchase-data", async (req, res) => {
     if (!response.ok) {
       return res.status(response.status).json({
         success: false,
-        message: result.message || "Data purchase failed."
+        message:
+          result.message || "Data purchase failed."
       });
     }
 
     res.json({
       success: true,
-      message: result.message || "Data purchase submitted.",
+      message:
+        result.message ||
+        "Data purchase submitted.",
       data: result.data || null
     });
 
   } catch (error) {
-    console.error("Purchase error:", error);
+    console.error(
+      "Purchase error:",
+      error.message
+    );
 
     res.status(500).json({
       success: false,
-      message: "Server error while processing purchase."
+      message:
+        "Server error while processing purchase."
     });
   }
 });
@@ -262,5 +279,7 @@ app.post("/api/purchase-data", async (req, res) => {
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`KLASH NETWORK API running on port ${PORT}`);
+  console.log(
+    `KLASH NETWORK API running on port ${PORT}`
+  );
 });
