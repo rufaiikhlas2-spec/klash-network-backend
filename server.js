@@ -9,15 +9,18 @@ app.use(express.json());
 const VTU_BASE_URL = "https://vtu.ng/wp-json";
 
 // ==========================================
-// VTU.ng LOGIN
+// VTU.ng AUTHENTICATION
 // ==========================================
 
 let cachedToken = null;
 let tokenTime = 0;
 
 async function getVTUToken() {
-  // Reuse token if it is still reasonably fresh
-  if (cachedToken && Date.now() - tokenTime < 6 * 24 * 60 * 60 * 1000) {
+  // Reuse token while it is still fresh
+  if (
+    cachedToken &&
+    Date.now() - tokenTime < 6 * 24 * 60 * 60 * 1000
+  ) {
     return cachedToken;
   }
 
@@ -42,7 +45,11 @@ async function getVTUToken() {
   const result = await response.json();
 
   if (!response.ok || !result.token) {
-    throw new Error("Unable to authenticate with VTU.ng");
+    console.error("VTU login failed:", result);
+
+    throw new Error(
+      result.message || "Unable to authenticate with VTU.ng"
+    );
   }
 
   cachedToken = result.token;
@@ -72,6 +79,29 @@ app.get("/api/health", (req, res) => {
     service: "KLASH NETWORK",
     status: "online"
   });
+});
+
+// ==========================================
+// TEST VTU LOGIN
+// ==========================================
+
+app.get("/api/vtu-test", async (req, res) => {
+  try {
+    await getVTUToken();
+
+    res.json({
+      success: true,
+      message: "VTU.ng authentication successful"
+    });
+
+  } catch (error) {
+    console.error("VTU test error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "VTU.ng authentication failed"
+    });
+  }
 });
 
 // ==========================================
@@ -133,7 +163,6 @@ app.post("/api/purchase-data", async (req, res) => {
   try {
 
     // SAFETY SWITCH
-    // Live purchases remain OFF until we are ready.
     if (process.env.LIVE_PURCHASES !== "true") {
       return res.status(403).json({
         success: false,
@@ -147,7 +176,6 @@ app.post("/api/purchase-data", async (req, res) => {
       variation_id
     } = req.body;
 
-    // Check required information
     if (!phone || !service_id || !variation_id) {
       return res.status(400).json({
         success: false,
@@ -155,7 +183,6 @@ app.post("/api/purchase-data", async (req, res) => {
       });
     }
 
-    // Validate network
     const allowedNetworks = [
       "mtn",
       "airtel",
@@ -163,14 +190,15 @@ app.post("/api/purchase-data", async (req, res) => {
       "9mobile"
     ];
 
-    if (!allowedNetworks.includes(service_id.toLowerCase())) {
+    const network = service_id.toLowerCase();
+
+    if (!allowedNetworks.includes(network)) {
       return res.status(400).json({
         success: false,
         message: "Invalid network."
       });
     }
 
-    // Validate phone
     const cleanPhone = phone.replace(/\s+/g, "");
 
     if (!/^(0|\+234)\d{10,13}$/.test(cleanPhone)) {
@@ -180,14 +208,11 @@ app.post("/api/purchase-data", async (req, res) => {
       });
     }
 
-    // Generate unique request ID
     const requestId =
       `KLASH_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
-    // Get secure VTU token
     const token = await getVTUToken();
 
-    // Send purchase request to VTU.ng
     const response = await fetch(
       `${VTU_BASE_URL}/api/v2/data`,
       {
@@ -199,7 +224,7 @@ app.post("/api/purchase-data", async (req, res) => {
         body: JSON.stringify({
           request_id: requestId,
           phone: cleanPhone,
-          service_id: service_id.toLowerCase(),
+          service_id: network,
           variation_id: String(variation_id)
         })
       }
@@ -207,7 +232,6 @@ app.post("/api/purchase-data", async (req, res) => {
 
     const result = await response.json();
 
-    // Return provider result
     if (!response.ok) {
       return res.status(response.status).json({
         success: false,
@@ -222,7 +246,6 @@ app.post("/api/purchase-data", async (req, res) => {
     });
 
   } catch (error) {
-
     console.error("Purchase error:", error);
 
     res.status(500).json({
@@ -233,7 +256,7 @@ app.post("/api/purchase-data", async (req, res) => {
 });
 
 // ==========================================
-// SERVER
+// START SERVER
 // ==========================================
 
 const PORT = process.env.PORT || 10000;
